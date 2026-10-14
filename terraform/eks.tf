@@ -12,7 +12,7 @@ module "eks" {
   # Node group configuration
   eks_managed_node_groups = {
     default = {
-      desired_capacity = var.node_desired_capacity
+      desired_size     = var.node_desired_capacity
       min_size         = 1
       max_size         = var.node_max_capacity
       instance_types   = [var.node_instance_type]

@@ -1,7 +1,7 @@
 # EKS Cluster outputs
 output "cluster_name" {
   description = "EKS cluster name"
-  value       = module.eks.cluster_id
+  value       = module.eks.cluster_name
 }
 
 output "cluster_endpoint" {
@@ -39,5 +39,5 @@ output "public_subnets" {
 # Node group outputs
 output "node_group_arn" {
   description = "EKS managed node group ARN"
-  value       = module.eks.node_groups["default"].arn
+  value       = module.eks.eks_managed_node_groups["default"].node_group_arn
 }
