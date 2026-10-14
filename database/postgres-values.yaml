@@ -1,0 +1,59 @@
+# PostgreSQL Helm Chart Values
+# This file provides a starting point for configuring PostgreSQL
+# Candidates should customize these values for their deployment
+
+# Global settings
+global:
+  postgresql:
+    auth:
+      postgresPassword: "postgres"
+      username: "appuser"
+      password: "apppass"
+      database: "vulnerable_app"
+
+# Primary configuration
+primary:
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: "gp2"
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  # Health checks
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+  
+  # Security context
+  securityContext:
+    enabled: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+
+# Service configuration
+service:
+  type: ClusterIP
+  ports:
+    postgresql: 5432
+
+# Network policies (optional)
+networkPolicy:
+  enabled: false
+
+# Monitoring (optional)
+metrics:
+  enabled: false
