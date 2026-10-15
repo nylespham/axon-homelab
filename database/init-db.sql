@@ -1,19 +1,25 @@
--- Database Initialization Script for DevSecOps Interview Lab
--- This script creates the database schema and inserts test data
--- for the vulnerable Flask application
+-- Database Initialization Script for DevSecOps Interview Lab (PostgreSQL)
+-- Creates the schema and test data for the vulnerable Flask application.
+--
+-- Run as the postgres superuser against the vulnerable_app database, with
+-- ON_ERROR_STOP so a failure aborts instead of reporting success:
+--   psql -v ON_ERROR_STOP=1 -U postgres -d vulnerable_app -f init-db.sql
+--
+-- The database and the appuser role are created by the Helm chart
+-- (auth.database / auth.username), not by this script, so no credentials
+-- live here.
+--
+-- NOTE: the test data is intentionally insecure (plain-text passwords, XSS
+-- payloads, leaked connection string) - it is the target for the lab's
+-- security testing. The schema and privileges are not.
 
--- Create database and user (if not exists)
-CREATE DATABASE IF NOT EXISTS vulnerable_app;
-CREATE USER IF NOT EXISTS 'appuser'@'%' IDENTIFIED BY 'apppass';
-GRANT ALL PRIVILEGES ON vulnerable_app.* TO 'appuser'@'%';
-FLUSH PRIVILEGES;
+\set ON_ERROR_STOP on
 
--- Use the database
-USE vulnerable_app;
+BEGIN;
 
 -- Create users table
-CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     password VARCHAR(100) NOT NULL,
     email VARCHAR(100),
@@ -22,124 +28,126 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Create posts table
-CREATE TABLE IF NOT EXISTS posts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE posts (
+    id SERIAL PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
     content TEXT,
-    author_id INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (author_id) REFERENCES users(id)
+    author_id INT REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create comments table
-CREATE TABLE IF NOT EXISTS comments (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    post_id INT,
+CREATE TABLE comments (
+    id SERIAL PRIMARY KEY,
+    post_id INT REFERENCES posts(id),
     author VARCHAR(50),
     content TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (post_id) REFERENCES posts(id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Insert test users
-INSERT INTO users (username, password, email, is_admin) VALUES 
+INSERT INTO users (username, password, email, is_admin) VALUES
 ('admin', 'admin123', 'admin@example.com', TRUE),
 ('user1', 'password123', 'user1@example.com', FALSE),
 ('user2', 'password456', 'user2@example.com', FALSE),
-('testuser', 'testpass', 'test@example.com', FALSE);
-
--- Insert test posts
-INSERT INTO posts (title, content, author_id) VALUES 
-('Welcome to the Vulnerable App', 'This is a intentionally vulnerable application for security testing. It contains various security vulnerabilities that you should identify and protect against.', 1),
-('SQL Injection Test Post', 'This post is specifically designed for testing SQL injection vulnerabilities. Try searching for it with malicious queries.', 1),
-('XSS Testing Content', 'This post contains content that can be used to test Cross-Site Scripting (XSS) vulnerabilities in the comment system.', 1),
-('Security Best Practices', 'When developing applications, always validate input, use parameterized queries, and implement proper authentication.', 2),
-('Database Security', 'Database security is crucial. Always use least privilege access, encrypt sensitive data, and monitor for suspicious activity.', 2);
-
--- Insert test comments
-INSERT INTO comments (post_id, author, content) VALUES 
-(1, 'user1', 'Great post! This is very informative.'),
-(1, 'user2', 'Thanks for sharing this information.'),
-(2, 'user1', 'This is a test comment for SQL injection testing.'),
-(2, 'user2', 'Another comment to test the system.'),
-(3, 'user1', 'XSS testing comment with <script>alert("test")</script>'),
-(3, 'user2', 'Another XSS test: <img src=x onerror=alert("XSS")>'),
-(4, 'user1', 'Security is very important in web applications.'),
-(4, 'user2', 'I agree, proper security measures are essential.'),
-(5, 'user1', 'Database security is often overlooked but critical.'),
-(5, 'user2', 'Monitoring and logging are key components of database security.');
-
--- Create additional test data for more realistic testing
-INSERT INTO users (username, password, email, is_admin) VALUES 
+('testuser', 'testpass', 'test@example.com', FALSE),
 ('john_doe', 'john123', 'john@example.com', FALSE),
 ('jane_smith', 'jane456', 'jane@example.com', FALSE),
-('bob_wilson', 'bob789', 'bob@example.com', FALSE);
+('bob_wilson', 'bob789', 'bob@example.com', FALSE),
+-- Sensitive data for testing information disclosure
+('sensitive_user', 'secret_password', 'sensitive@example.com', FALSE),
+('admin_backup', 'backup_admin_pass', 'backup@example.com', TRUE);
 
-INSERT INTO posts (title, content, author_id) VALUES 
-('API Security', 'API security is becoming increasingly important as more applications rely on APIs for communication.', 6),
-('Authentication Methods', 'There are various authentication methods available, each with their own security implications.', 7),
-('Session Management', 'Proper session management is crucial for maintaining security in web applications.', 8);
+-- Posts reference authors by username instead of hard-coded IDs, so the data
+-- can't drift out of sync with the generated keys
+INSERT INTO posts (title, content, author_id)
+SELECT p.title, p.content, u.id
+FROM (VALUES
+    ('Welcome to the Vulnerable App', 'This is a intentionally vulnerable application for security testing. It contains various security vulnerabilities that you should identify and protect against.', 'admin'),
+    ('SQL Injection Test Post', 'This post is specifically designed for testing SQL injection vulnerabilities. Try searching for it with malicious queries.', 'admin'),
+    ('XSS Testing Content', 'This post contains content that can be used to test Cross-Site Scripting (XSS) vulnerabilities in the comment system.', 'admin'),
+    ('Security Best Practices', 'When developing applications, always validate input, use parameterized queries, and implement proper authentication.', 'user1'),
+    ('Database Security', 'Database security is crucial. Always use least privilege access, encrypt sensitive data, and monitor for suspicious activity.', 'user1'),
+    ('API Security', 'API security is becoming increasingly important as more applications rely on APIs for communication.', 'john_doe'),
+    ('Authentication Methods', 'There are various authentication methods available, each with their own security implications.', 'jane_smith'),
+    ('Session Management', 'Proper session management is crucial for maintaining security in web applications.', 'bob_wilson'),
+    -- Posts with sensitive information
+    ('Internal Document', 'This is an internal document that should not be accessible to regular users.', 'admin'),
+    ('Confidential Information', 'This post contains confidential information that should be protected.', 'admin'),
+    ('System Configuration', 'Database connection string: postgresql://admin:password@localhost:5432/db', 'admin'),
+    -- Load test posts
+    ('Load Test Post 1', 'This is a load test post for performance testing.', 'admin'),
+    ('Load Test Post 2', 'Another load test post for performance testing.', 'admin'),
+    ('Load Test Post 3', 'Third load test post for performance testing.', 'admin')
+) AS p(title, content, username)
+JOIN users u ON u.username = p.username;
 
-INSERT INTO comments (post_id, author, content) VALUES 
-(6, 'john_doe', 'API security is indeed crucial in modern applications.'),
-(6, 'jane_smith', 'Great point about API security considerations.'),
-(7, 'bob_wilson', 'Authentication is the foundation of application security.'),
-(7, 'john_doe', 'Multi-factor authentication adds an extra layer of security.'),
-(8, 'jane_smith', 'Session management is often implemented incorrectly.'),
-(8, 'bob_wilson', 'Proper session timeout and invalidation are important.');
+-- Comments reference posts by title for the same reason
+INSERT INTO comments (post_id, author, content)
+SELECT p.id, c.author, c.content
+FROM (VALUES
+    ('Welcome to the Vulnerable App', 'user1', 'Great post! This is very informative.'),
+    ('Welcome to the Vulnerable App', 'user2', 'Thanks for sharing this information.'),
+    ('SQL Injection Test Post', 'user1', 'This is a test comment for SQL injection testing.'),
+    ('SQL Injection Test Post', 'user2', 'Another comment to test the system.'),
+    ('XSS Testing Content', 'user1', 'XSS testing comment with <script>alert("test")</script>'),
+    ('XSS Testing Content', 'user2', 'Another XSS test: <img src=x onerror=alert("XSS")>'),
+    ('Security Best Practices', 'user1', 'Security is very important in web applications.'),
+    ('Security Best Practices', 'user2', 'I agree, proper security measures are essential.'),
+    ('Database Security', 'user1', 'Database security is often overlooked but critical.'),
+    ('Database Security', 'user2', 'Monitoring and logging are key components of database security.'),
+    ('API Security', 'john_doe', 'API security is indeed crucial in modern applications.'),
+    ('API Security', 'jane_smith', 'Great point about API security considerations.'),
+    ('Authentication Methods', 'bob_wilson', 'Authentication is the foundation of application security.'),
+    ('Authentication Methods', 'john_doe', 'Multi-factor authentication adds an extra layer of security.'),
+    ('Session Management', 'jane_smith', 'Session management is often implemented incorrectly.'),
+    ('Session Management', 'bob_wilson', 'Proper session timeout and invalidation are important.'),
+    ('Load Test Post 1', 'user1', 'Load test comment 1'),
+    ('Load Test Post 1', 'user2', 'Load test comment 2'),
+    ('Load Test Post 2', 'user1', 'Load test comment 3'),
+    ('Load Test Post 2', 'user2', 'Load test comment 4'),
+    ('Load Test Post 3', 'user1', 'Load test comment 5'),
+    ('Load Test Post 3', 'user2', 'Load test comment 6')
+) AS c(post_title, author, content)
+JOIN posts p ON p.title = c.post_title;
 
--- Create a view for testing (can be used for SQL injection)
+-- View joining users and posts
 CREATE VIEW user_posts AS
 SELECT u.username, p.title, p.content, p.created_at
 FROM users u
 JOIN posts p ON u.id = p.author_id;
 
--- Insert some sensitive data for testing information disclosure
-INSERT INTO users (username, password, email, is_admin) VALUES 
-('sensitive_user', 'secret_password', 'sensitive@example.com', FALSE),
-('admin_backup', 'backup_admin_pass', 'backup@example.com', TRUE);
-
--- Insert posts with sensitive information
-INSERT INTO posts (title, content, author_id) VALUES 
-('Internal Document', 'This is an internal document that should not be accessible to regular users.', 1),
-('Confidential Information', 'This post contains confidential information that should be protected.', 1),
-('System Configuration', 'Database connection string: postgresql://admin:password@localhost:5432/db', 1);
-
--- Create a stored procedure for testing (if supported)
-DELIMITER //
-CREATE PROCEDURE GetUserPosts(IN user_id INT)
-BEGIN
+-- Function returning a user's posts (PostgreSQL equivalent of the MySQL
+-- stored procedure)
+CREATE FUNCTION get_user_posts(p_user_id INT)
+RETURNS TABLE (title VARCHAR, content TEXT, created_at TIMESTAMP)
+LANGUAGE sql STABLE
+AS $$
     SELECT p.title, p.content, p.created_at
     FROM posts p
-    WHERE p.author_id = user_id;
-END //
-DELIMITER ;
+    WHERE p.author_id = p_user_id;
+$$;
 
--- Grant execute permission on stored procedure
-GRANT EXECUTE ON PROCEDURE vulnerable_app.GetUserPosts TO 'appuser'@'%';
-
--- Create an index for performance testing
+-- Indexes (users.username is already indexed by its UNIQUE constraint)
 CREATE INDEX idx_posts_author ON posts(author_id);
 CREATE INDEX idx_comments_post ON comments(post_id);
-CREATE INDEX idx_users_username ON users(username);
 
--- Insert some additional test data for load testing
-INSERT INTO posts (title, content, author_id) VALUES 
-('Load Test Post 1', 'This is a load test post for performance testing.', 1),
-('Load Test Post 2', 'Another load test post for performance testing.', 1),
-('Load Test Post 3', 'Third load test post for performance testing.', 1);
+-- Least privilege for the application role: it only reads and adds
+-- comments. No DDL, UPDATE or DELETE, so SQL injection through the app
+-- can't drop tables or flip is_admin.
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO appuser;
+GRANT SELECT ON users, posts, comments, user_posts TO appuser;
+GRANT INSERT ON comments TO appuser;
+GRANT USAGE ON SEQUENCE comments_id_seq TO appuser;
+REVOKE EXECUTE ON FUNCTION get_user_posts(INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_user_posts(INT) TO appuser;
 
--- Insert additional comments for load testing
-INSERT INTO comments (post_id, author, content) VALUES 
-(9, 'user1', 'Load test comment 1'),
-(9, 'user2', 'Load test comment 2'),
-(10, 'user1', 'Load test comment 3'),
-(10, 'user2', 'Load test comment 4'),
-(11, 'user1', 'Load test comment 5'),
-(11, 'user2', 'Load test comment 6');
+COMMIT;
 
 -- Show the created data
-SELECT 'Database initialization completed successfully!' as status;
-SELECT COUNT(*) as total_users FROM users;
-SELECT COUNT(*) as total_posts FROM posts;
-SELECT COUNT(*) as total_comments FROM comments;
+SELECT 'Database initialization completed successfully!' AS status;
+SELECT COUNT(*) AS total_users FROM users;
+SELECT COUNT(*) AS total_posts FROM posts;
+SELECT COUNT(*) AS total_comments FROM comments;
