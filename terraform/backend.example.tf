@@ -4,19 +4,19 @@
 # terraform {
 #   backend "s3" {
 #     # Replace with your S3 bucket name
-#     bucket = "platform-ops"
+#     bucket = "platform-ops-tfstate-205098647215"
 #
 #     # Path to store the state file
 #     key = "devsecops-interview-lab/terraform.tfstate"
 #
 #     # AWS region
 #     region = "us-west-2"
-
-    # State locking via an S3 lock file (replaces the DynamoDB table)
-    # use_lockfile = true
-
-    # Optional: Enable encryption
-    # encrypt = true
+#
+#     # State locking via an S3 lock file (replaces the DynamoDB table)
+#     use_lockfile = true
+#
+#     # Optional: Enable encryption
+#     encrypt = true
 #   }
 # }
 

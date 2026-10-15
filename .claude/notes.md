@@ -5,6 +5,34 @@ flagged as unsafe for production.
 See also: [database-vulnerabilities.md](database-vulnerabilities.md): review of
 `database/init-db.sql` (it's MySQL syntax and fails on PostgreSQL).
 
+## Current setup: real AWS (since 2026-10-15)
+
+LocalStack was dropped (time limit); the EKS cluster is built in the real AWS
+account **<account-id>**, `us-west-2`. Everything LocalStack-related was
+reverted or removed. The LocalStack sections further down are kept for
+history only.
+
+- **State backend:** `terraform/backend.tf` → S3 bucket
+  `platform-ops-tfstate-<account-id>` (key
+  `devsecops-interview-lab/terraform.tfstate`, `use_lockfile`, `encrypt`).
+  Bucket: versioning on, SSE-S3 (AES256) default encryption, all public access
+  blocked, bucket-owner-enforced ownership. `platform-ops` couldn't be used:
+  the name is taken by another AWS account. No Object Lock on this bucket.
+- **`terraform/backend.example.tf`:** fully commented out. It's a `.tf` file,
+  so Terraform loads it; an active block there conflicts with `backend.tf`.
+- **Provider:** plain `region = var.aws_region`, so it uses your default AWS
+  credentials. LocalStack endpoints, `test` keys and the
+  `allowed_account_ids = ["000000000000"]` guard were removed.
+- **Node group:** always created again (`create_node_group` variable removed).
+  Kept the non-LocalStack fixes: `cluster_name` / `node_group_arn` outputs and
+  `desired_size`.
+- **Removed:** `docker-compose.yml`, `./volume`, the LocalStack and k3d-eks
+  containers, volume and networks. `.env` (LocalStack auth token, gitignored)
+  is still there.
+- **Verified:** `terraform plan` → 59 to add (incl. the node group), 0 in state.
+- **Cost:** EKS control plane + NAT gateway + EC2 node bill hourly. Run
+  `terraform destroy` when done.
+
 ## LocalStack on Podman (macOS)
 
 Changes made to `docker-compose.yml` to get LocalStack running under Podman:
@@ -98,7 +126,51 @@ done
 - **Lock-file versions pile up:** each run leaves `.tflock` versions that are
   also retained for 7 days. A lifecycle rule that expires noncurrent versions
   keeps the bucket small.
-- **Only the state is in LocalStack:** `provider "aws"` in
-  `terraform/versions.tf` still targets real AWS. To create resources in
-  LocalStack too, add LocalStack endpoints to the provider or use `tflocal`
-  (`pip install terraform-local`).
+- **Provider points at LocalStack (fixed 2026-10-15):** `provider "aws"` in
+  `terraform/versions.tf` uses dummy `test` credentials, LocalStack endpoints
+  for every service the config uses, and
+  `allowed_account_ids = ["000000000000"]` (LocalStack's account) so it
+  refuses to run against a real account. If you add a resource for a new AWS
+  service, add its endpoint too, or it will fail to authenticate.
+
+## EKS node groups don't work in LocalStack on Podman
+
+`terraform apply` failed with
+`waiting for EKS Node Group ... unexpected state 'CREATE_FAILED'`.
+
+**Cause:** LocalStack runs EKS as a k3d (k3s) cluster in Podman. To add a
+node-group node, k3d copies the server container's settings. Under Podman the
+copy reuses the server's own volumes (`/var/lib/rancher/k3s`,
+`/var/lib/kubelet`, `/var/lib/cni`), so the agent's containerd hangs on files
+the server already has open and the node never registers. (k3d then also fails
+to read the agent's logs through Podman's API.) Under Docker the copy gets
+fresh volumes, so this is Podman-specific.
+
+**Fix (2026-10-15):**
+- `variable "create_node_group"` (default `false`) in
+  `terraform/variables.tf`; `eks.tf` only creates the node group when it's
+  `true`. Set it to `true` on Docker or real AWS.
+- `node_group_arn` output uses `try(..., null)`.
+- Workloads run on the k3s server node instead. It has a
+  `node-role.kubernetes.io/control-plane:NoSchedule` taint, which has to be
+  removed after each cluster create:
+
+```bash
+S=$(podman ps --format '{{.Names}}' | grep -- '-server-0$' | grep k3d-eks)
+podman exec $S kubectl taint nodes $S node-role.kubernetes.io/control-plane:NoSchedule-
+```
+
+If LocalStack leaves an orphaned `k3d-eks-...-agent-...` container behind,
+remove it with `podman rm -f <name>` (no `-v`: its volumes are the server's).
+
+## Incident: resources created in real AWS (2026-10-14)
+
+Before the provider fix, `terraform apply` used the default AWS credentials
+(account <account-id>) and created the full stack in real
+AWS `us-west-2` (EKS cluster `eks-interview-lab`, VPC, NAT gateway, EIP, KMS
+keys, IAM roles, ...). The state was saved in the LocalStack bucket. A
+`terraform destroy` ran at 2026-10-15 01:30 (UTC+7).
+
+Checked 2026-10-15: nothing left in the account except 2 KMS keys in
+`PendingDeletion` (deleted automatically on 2026-10-22 and 2026-11-14).
+All state versions were backed up to the session scratchpad.
