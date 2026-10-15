@@ -31,26 +31,26 @@ This document describes the test data provided in `init-db.sql` for the DevSecOp
 ### Additional Objects
 
 - **user_posts** - View joining users and posts
-- **GetUserPosts** - Stored procedure for testing
+- **get_user_posts** - Function returning a user's posts
 - **Indexes** - Performance indexes on key columns
 
 ## Test Data Included
 
-### Users (10 total)
+### Users (9 total)
 - **admin** - Admin user with elevated privileges
 - **user1, user2** - Regular users for testing
 - **testuser** - Additional test user
 - **john_doe, jane_smith, bob_wilson** - Realistic user names
 - **sensitive_user, admin_backup** - Sensitive accounts for testing
 
-### Posts (11 total)
+### Posts (14 total)
 - Welcome and introduction posts
 - Security-focused content
 - Test posts for vulnerability testing
 - Load testing posts
 - Posts with sensitive information
 
-### Comments (20+ total)
+### Comments (22 total)
 - Normal comments for legitimate testing
 - XSS test comments with malicious scripts
 - Comments for load testing
@@ -115,11 +115,11 @@ Candidates can:
 ## Database Statistics
 
 After initialization:
-- **Users**: 10 total
-- **Posts**: 11 total  
-- **Comments**: 20+ total
+- **Users**: 9 total
+- **Posts**: 14 total
+- **Comments**: 22 total
 - **Views**: 1 (user_posts)
-- **Procedures**: 1 (GetUserPosts)
-- **Indexes**: 3 performance indexes
+- **Functions**: 1 (get_user_posts)
+- **Indexes**: 2 performance indexes (users.username is covered by its UNIQUE constraint)
 
 This provides a realistic dataset for comprehensive security testing and evaluation.

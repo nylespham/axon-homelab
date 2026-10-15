@@ -176,17 +176,20 @@ data:
 - [ ] Test resource constraint enforcement
 - [ ] Monitor resource usage
 
-### Secrets Management
-- [ ] Enable secret encryption
-- [ ] Implement proper secret rotation
-- [ ] Test secret access controls
-- [ ] Document secret management
+### Secrets Management  (see docs/SECRETS_AND_MONITORING.md)
+- [x] Enable secret encryption — EKS KMS envelope encryption (verified live)
+- [~] Implement proper secret rotation — manual documented; automated via
+      External Secrets Operator + Secrets Manager is the next step
+- [x] Test secret access controls — namespaced, no SA token, no Secret RBAC;
+      non-system Secret reads alarm
+- [x] Document secret management — docs/SECRETS_AND_MONITORING.md
 
-### Monitoring
-- [ ] Enable audit logging
-- [ ] Configure security monitoring
-- [ ] Set up alerting
-- [ ] Test log collection
+### Monitoring  (see docs/SECRETS_AND_MONITORING.md, terraform/monitoring.tf)
+- [x] Enable audit logging — api/audit/authenticator → CloudWatch (verified)
+- [x] Configure security monitoring — WAF logs + audit metric filters
+      (pod-exec, secret reads, authz-denied)
+- [x] Set up alerting — SNS topic + CloudWatch alarms (set alert_email)
+- [x] Test log collection — WAF + EKS log groups confirmed present
 
 ## Testing Security Controls
 

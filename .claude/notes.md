@@ -4,6 +4,8 @@ See also: [app-vulnerabilities.md](app-vulnerabilities.md): why `app/` is
 flagged as unsafe for production.
 See also: [database-vulnerabilities.md](database-vulnerabilities.md): review of
 `database/init-db.sql` (it's MySQL syntax and fails on PostgreSQL).
+See also: [../docs/FINDINGS.md](../docs/FINDINGS.md): the full findings
+report (deliverable), with fix status and verification for each item.
 
 ## Current setup: real AWS (since 2026-10-15)
 

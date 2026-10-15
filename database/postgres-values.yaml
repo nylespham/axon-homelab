@@ -1,59 +1,100 @@
-# PostgreSQL Helm Chart Values
-# This file provides a starting point for configuring PostgreSQL
-# Candidates should customize these values for their deployment
+# PostgreSQL Helm Chart Values (bitnami/postgresql, checked against chart 18.12.x)
+#
+# Install (full steps, incl. the app's copy of the Secret: database/README.md):
+#   kubectl apply -f kubernetes/storageclass.yaml
+#   kubectl apply -f kubernetes/kubernetes-security-examples.yaml
+#   kubectl -n database create secret generic postgres-credentials \
+#     --from-literal=postgres-password="$(openssl rand -hex 24)" \
+#     --from-literal=password="$(openssl rand -hex 24)"
+#   helm install postgres oci://registry-1.docker.io/bitnamicharts/postgresql \
+#     --version 18.12.4 -n database -f database/postgres-values.yaml
+#
+# The app reads the same app-user password from a Secret in its own namespace
+# (app-db-credentials), so no password is ever written in this file or in git.
 
-# Global settings
-global:
-  postgresql:
-    auth:
-      postgresPassword: "postgres"
-      username: "appuser"
-      password: "apppass"
-      database: "vulnerable_app"
+auth:
+  enablePostgresUser: true
+  username: appuser
+  database: vulnerable_app
+  # Passwords come from a pre-created Secret instead of plain text here
+  existingSecret: postgres-credentials
+  secretKeys:
+    adminPasswordKey: postgres-password
+    userPasswordKey: password
 
-# Primary configuration
 primary:
   persistence:
     enabled: true
     size: 10Gi
-    storageClass: "gp2"
-  
+    # Encrypted gp3 class from kubernetes/storageclass.yaml (needs the EBS CSI
+    # driver add-on; EKS has no working default StorageClass without it)
+    storageClass: ebs-gp3-encrypted
+
   resources:
     requests:
-      memory: "256Mi"
-      cpu: "250m"
+      memory: 256Mi
+      cpu: 250m
     limits:
-      memory: "512Mi"
-      cpu: "500m"
-  
-  # Health checks
+      memory: 512Mi
+      cpu: 500m
+
   livenessProbe:
     enabled: true
     initialDelaySeconds: 30
     periodSeconds: 10
-  
+
   readinessProbe:
     enabled: true
     initialDelaySeconds: 5
     periodSeconds: 5
-  
-  # Security context
-  securityContext:
+
+  # The old "primary.securityContext" key doesn't exist in this chart and was
+  # silently ignored. These are the real keys.
+  podSecurityContext:
+    enabled: true
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
     enabled: true
     runAsUser: 1001
     runAsGroup: 1001
-    fsGroup: 1001
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    privileged: false
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
 
-# Service configuration
-service:
-  type: ClusterIP
-  ports:
-    postgresql: 5432
+  # Only the Flask app may connect, and the database needs no outbound
+  # access. (The old top-level "networkPolicy" key was also ignored.)
+  networkPolicy:
+    enabled: true
+    allowExternal: false
+    allowExternalEgress: false
+    extraIngress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: vulnerable-app
+            podSelector:
+              matchLabels:
+                app: vulnerable-flask
+        ports:
+          - protocol: TCP
+            port: 5432
 
-# Network policies (optional)
-networkPolicy:
-  enabled: false
+  service:
+    type: ClusterIP
+    ports:
+      postgresql: 5432
 
-# Monitoring (optional)
+# The pods don't call the Kubernetes API, so don't mount a token
+serviceAccount:
+  create: true
+  automountServiceAccountToken: false
+
 metrics:
   enabled: false

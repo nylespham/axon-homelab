@@ -22,7 +22,7 @@ resource "aws_security_group" "eks_cluster_sg" {
 # Security Group for EKS Nodes
 resource "aws_security_group" "eks_nodes_sg" {
   name_prefix = "eks-nodes-"
-  vpc_id     = module.vpc.vpc_id
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
     from_port = 0

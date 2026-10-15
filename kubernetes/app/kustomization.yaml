@@ -1,0 +1,17 @@
+# Apply after the baseline (namespaces, policies, service account):
+#   kubectl apply -f kubernetes/kubernetes-security-examples.yaml
+#   kubectl apply -k kubernetes/app
+#
+# The image is set by `make deploy` (repo root Makefile) to the ECR repo
+# from terraform/ecr.tf and the pushed git-SHA tag.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+
+images:
+  - name: vulnerable-flask
+    newName: 205098647215.dkr.ecr.us-west-2.amazonaws.com/vulnerable-flask
+    newTag: "52e66e4a95a9"

@@ -1,0 +1,19 @@
+# ClusterIP only: the namespace quota forbids LoadBalancer and NodePort
+# Services. Public exposure goes through an ALB Ingress (needs the AWS Load
+# Balancer Controller); until then use kubectl port-forward.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vulnerable-flask
+  namespace: vulnerable-app
+  labels:
+    app: vulnerable-flask
+spec:
+  type: ClusterIP
+  selector:
+    app: vulnerable-flask
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

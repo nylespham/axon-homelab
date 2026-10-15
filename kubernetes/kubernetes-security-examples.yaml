@@ -1,119 +1,110 @@
-# Kubernetes Security Examples
-# These are example manifests for candidates to reference during the interview
-# Copy and customize these configurations as needed
+# Kubernetes Security Baseline
+# Fixed version of the provided examples. See docs/FINDINGS.md for what was
+# wrong with the originals and why each change was made.
+#
+# Requires: VPC CNI network policy enforcement (enableNetworkPolicy=true,
+# set in terraform/eks.tf). Without it EKS silently ignores NetworkPolicies.
+#
+# Apply: kubectl apply -f kubernetes/kubernetes-security-examples.yaml
 
 ---
-# Network Policy Example
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: deny-all-ingress
-  namespace: default
-spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress: []
-  egress: []
-
----
-# Pod Security Policy Example (if using older Kubernetes)
-apiVersion: policy/v1beta1
-kind: PodSecurityPolicy
-metadata:
-  name: restricted-psp
-spec:
-  privileged: false
-  allowPrivilegeEscalation: false
-  requiredDropCapabilities:
-    - ALL
-  volumes:
-    - 'configMap'
-    - 'emptyDir'
-    - 'projected'
-    - 'secret'
-    - 'downwardAPI'
-    - 'persistentVolumeClaim'
-  runAsUser:
-    rule: 'MustRunAsNonRoot'
-  seLinux:
-    rule: 'RunAsAny'
-  fsGroup:
-    rule: 'RunAsAny'
-
----
-# Pod Security Standards Example
+# Namespaces with Pod Security Admission (PodSecurityPolicy was removed in
+# Kubernetes 1.25; the provided PSP example no longer applies)
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: secure-namespace
+  name: vulnerable-app
   labels:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 
 ---
-# Security Context Example
 apiVersion: v1
-kind: Pod
+kind: Namespace
 metadata:
-  name: secure-pod
-  namespace: secure-namespace
-spec:
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 1000
-    fsGroup: 2000
-  containers:
-  - name: app
-    image: nginx:alpine
-    securityContext:
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: true
-      runAsNonRoot: true
-      runAsUser: 1000
-      capabilities:
-        drop:
-        - ALL
-    resources:
-      requests:
-        memory: "64Mi"
-        cpu: "250m"
-      limits:
-        memory: "128Mi"
-        cpu: "500m"
+  name: database
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
 
 ---
-# Network Policy for Database
+# Default deny for both namespaces. NetworkPolicies are additive, so the
+# allow rules below open only what is needed.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: database-network-policy
-  namespace: database
+  name: default-deny-all
+  namespace: vulnerable-app
 spec:
-  podSelector:
-    matchLabels:
-      app: postgres
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: vulnerable-app
-    ports:
-    - protocol: TCP
-      port: 5432
-  egress:
-  - to: []
-    ports:
-    - protocol: TCP
-      port: 5432
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
 
 ---
-# Network Policy for Application
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: database
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+
+---
+# DNS for every pod in both namespaces. The provided examples denied all
+# egress (or only allowed 5432), which breaks name resolution.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: vulnerable-app
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: database
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+
+---
+# App: ingress only from the ALB (public subnets, IP target mode), egress
+# only to Postgres.
+# - The original selected namespaces by a "name" label, which Kubernetes
+#   never sets; kubernetes.io/metadata.name is set automatically.
+# - The original allowed ingress from a "waf" namespace. With AWS WAF on an
+#   ALB, traffic arrives from the ALB's IPs in the public subnets, not from
+#   pods, so the rule has to be an ipBlock.
+# - The original allowed egress to 80/443 anywhere: an open exfiltration path
+#   for a known-vulnerable app. The app doesn't need it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -123,34 +114,33 @@ spec:
   podSelector:
     matchLabels:
       app: vulnerable-flask
-  policyTypes:
-  - Ingress
-  - Egress
+  policyTypes: [Ingress, Egress]
   ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: waf
-    ports:
-    - protocol: TCP
-      port: 5000
+    - from:
+        - ipBlock: { cidr: 10.20.101.0/24 }   # public subnet AZ a (terraform/vpc.tf)
+        - ipBlock: { cidr: 10.20.102.0/24 }   # public subnet AZ b
+      ports:
+        - { protocol: TCP, port: 5000 }
   egress:
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: database
-    ports:
-    - protocol: TCP
-      port: 5432
-  - to: []
-    ports:
-    - protocol: TCP
-      port: 80
-    - protocol: TCP
-      port: 443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: database
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - { protocol: TCP, port: 5432 }
+
+# Postgres ingress is restricted by the Helm chart's own NetworkPolicy
+# (database/postgres-values.yaml: primary.networkPolicy). The provided
+# database policy also selected pods by "app: postgres", a label the Bitnami
+# chart doesn't use, so it matched nothing.
 
 ---
-# Service Account with minimal permissions
+# Service account with no API token. The provided example also bound a Role
+# granting "get secrets" and "list pods": the app never calls the Kubernetes
+# API, so it gets no Role at all.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -159,50 +149,24 @@ metadata:
 automountServiceAccountToken: false
 
 ---
-# RBAC Example
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  namespace: vulnerable-app
-  name: app-role
-rules:
-- apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["get", "list"]
-- apiGroups: [""]
-  resources: ["secrets"]
-  verbs: ["get"]
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: app-role-binding
-  namespace: vulnerable-app
-subjects:
-- kind: ServiceAccount
-  name: app-service-account
-  namespace: vulnerable-app
-roleRef:
-  kind: Role
-  name: app-role
-  apiGroup: rbac.authorization.k8s.io
-
----
-# Pod Disruption Budget
+# Pod Disruption Budget. With minAvailable: 1 and a single replica (the
+# original), no voluntary eviction is ever allowed, so node drains and
+# upgrades hang. maxUnavailable: 1 keeps drains working; run 2+ replicas for
+# real availability.
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: app-pdb
   namespace: vulnerable-app
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: vulnerable-flask
 
 ---
-# Resource Quota
+# Resource quota and default limits, so a pod without limits can't exhaust
+# a small node (t3.small: 2 vCPU, 2 GiB)
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -210,8 +174,22 @@ metadata:
   namespace: vulnerable-app
 spec:
   hard:
-    requests.cpu: "2"
-    requests.memory: 4Gi
-    limits.cpu: "4"
-    limits.memory: 8Gi
-    persistentvolumeclaims: "4"
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "2"
+    limits.memory: 2Gi
+    pods: "10"
+    services.loadbalancers: "0"   # exposure goes through the ALB Ingress only
+    services.nodeports: "0"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: app-default-limits
+  namespace: vulnerable-app
+spec:
+  limits:
+    - type: Container
+      default: { cpu: 500m, memory: 256Mi }
+      defaultRequest: { cpu: 100m, memory: 128Mi }

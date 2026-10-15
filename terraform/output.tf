@@ -41,3 +41,9 @@ output "node_group_arn" {
   description = "EKS managed node group ARN"
   value       = module.eks.eks_managed_node_groups["default"].node_group_arn
 }
+
+# ECR outputs (used by the Makefile)
+output "ecr_repository_url" {
+  description = "Private ECR repository URL for the app image"
+  value       = aws_ecr_repository.app.repository_url
+}

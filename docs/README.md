@@ -88,10 +88,10 @@ You have **2-3 hours** to complete the following tasks. This test evaluates your
 4. **Import test data:**
    ```bash
    # Copy the init script to the pod
-   kubectl cp database/init-db.sql <postgres-pod>:/tmp/init-db.sql
+   kubectl cp database/init-db.sql <postgres-pod>:/tmp/init-db.sql -n database
    
    # Execute the initialization script
-   kubectl exec -it <postgres-pod> -- psql -U postgres -d vulnerable_app -f /tmp/init-db.sql
+   kubectl exec -n database -it <postgres-pod> -- psql -U postgres -d vulnerable_app -f /tmp/init-db.sql
    ```
 
 5. **Test database connectivity and verify data:**

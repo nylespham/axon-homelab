@@ -56,7 +56,11 @@ INDEX_TEMPLATE = """
         <div class="vulnerability">
             <strong>Warning:</strong> This application contains intentional security vulnerabilities for educational purposes.
         </div>
-        
+
+        {% for message in get_flashed_messages() %}
+        <p><em>{{ message }}</em></p>
+        {% endfor %}
+
         <h2>Navigation</h2>
         <a href="/">Home</a> | 
         <a href="/search">Search</a> | 
@@ -153,7 +157,8 @@ def index():
         cursor = conn.cursor()
         # Get recent comments
         cursor.execute("SELECT author, content FROM comments ORDER BY created_at DESC LIMIT 5")
-        comments = cursor.fetchall()
+        # Template reads comment.author / comment.content, so rows must be dicts
+        comments = [{'author': row[0], 'content': row[1]} for row in cursor.fetchall()]
         cursor.close()
         conn.close()
         

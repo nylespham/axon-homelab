@@ -1,0 +1,112 @@
+# Flask app. Fits the baseline in ../kubernetes-security-examples.yaml:
+# - "restricted" Pod Security Admission on the namespace: non-root, no
+#   privilege escalation, all capabilities dropped, RuntimeDefault seccomp
+# - NetworkPolicy and PDB select app: vulnerable-flask
+# - ResourceQuota / LimitRange: every container sets requests and limits
+#
+# The DB password comes from the app-db-credentials Secret, created at deploy
+# time from the Postgres Secret (see README.md), never stored in git.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnerable-flask
+  namespace: vulnerable-app
+  labels:
+    app: vulnerable-flask
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: vulnerable-flask
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: vulnerable-flask
+    spec:
+      serviceAccountName: app-service-account
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000   # appuser in app/Dockerfile
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread the replicas so one node loss doesn't take the app down
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: vulnerable-flask
+      containers:
+        - name: app
+          image: vulnerable-flask   # set by kustomization.yaml (images:)
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+          env:
+            # Bitnami chart service: <release>-postgresql.<namespace>
+            - name: DB_HOST
+              value: postgres-postgresql.database.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: vulnerable_app
+            - name: DB_USER
+              value: appuser
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-db-credentials
+                  key: password
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          # "/" queries the database, so readiness pulls a pod out of the
+          # Service while Postgres is unreachable. Liveness only checks the
+          # port, so a database outage doesn't restart-loop the app.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            # gunicorn needs a writable temp dir for worker heartbeats
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
