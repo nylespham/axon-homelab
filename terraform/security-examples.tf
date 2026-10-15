@@ -1,83 +1,20 @@
 # Security Configuration Examples
-# These are examples for candidates to reference during the interview
-# Copy and customize these configurations as needed
-
-# Security Group for EKS Cluster
-resource "aws_security_group" "eks_cluster_sg" {
-  name_prefix = "eks-cluster-"
-  vpc_id      = module.vpc.vpc_id
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "eks-cluster-security-group"
-  }
-}
-
-# Security Group for EKS Nodes
-resource "aws_security_group" "eks_nodes_sg" {
-  name_prefix = "eks-nodes-"
-  vpc_id     = module.vpc.vpc_id
-
-  ingress {
-    from_port = 0
-    to_port   = 65535
-    protocol  = "tcp"
-    self      = true
-  }
-
-  ingress {
-    from_port       = 1025
-    to_port         = 65535
-    protocol        = "tcp"
-    security_groups = [aws_security_group.eks_cluster_sg.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "eks-nodes-security-group"
-  }
-}
-
-# KMS Key for EKS Cluster Encryption
-resource "aws_kms_key" "eks_cluster_encryption" {
-  description             = "EKS Cluster Encryption Key"
-  deletion_window_in_days = 7
-
-  tags = {
-    Name = "eks-cluster-encryption-key"
-  }
-}
-
-# KMS Key Alias
-resource "aws_kms_alias" "eks_cluster_encryption" {
-  name          = "alias/eks-cluster-encryption"
-  target_key_id = aws_kms_key.eks_cluster_encryption.key_id
-}
-
-# Output security group IDs for reference
-output "eks_cluster_security_group_id" {
-  description = "EKS cluster security group ID"
-  value       = aws_security_group.eks_cluster_sg.id
-}
-
-output "eks_nodes_security_group_id" {
-  description = "EKS nodes security group ID"
-  value       = aws_security_group.eks_nodes_sg.id
-}
-
-output "kms_key_id" {
-  description = "KMS key ID for cluster encryption"
-  value       = aws_kms_key.eks_cluster_encryption.key_id
-}
+#
+# The provided file created two security groups and a KMS key that nothing
+# used:
+# - "eks_cluster_sg" / "eks_nodes_sg" weren't attached to the cluster or the
+#   node group. The EKS module already creates and attaches its own cluster
+#   and node security groups. The unused node SG also allowed all TCP from
+#   itself and 1025-65535 from the cluster SG, broader than the module's rules.
+# - "eks_cluster_encryption" KMS key wasn't wired to the cluster. The EKS
+#   module already creates a KMS key and encrypts Kubernetes Secrets with it
+#   (create_kms_key / encryption_config defaults), so it was a second, unused
+#   key costing $1/month.
+#
+# Unused security resources give false assurance in a review, so they were
+# removed. The real controls live in eks.tf:
+# - Secrets encryption: module-managed KMS key (module default)
+# - Control-plane audit logs: enabled_log_types (module default:
+#   audit, api, authenticator)
+# - API endpoint restricted to var.api_allowed_cidrs, private endpoint on
+# - VPC CNI network policy enforcement, EBS CSI driver via Pod Identity

@@ -22,6 +22,16 @@ variable "node_instance_type" {
   description = "EC2 instance type for EKS nodes"
 }
 
+variable "api_allowed_cidrs" {
+  type        = list(string)
+  description = "CIDRs allowed to reach the public EKS API endpoint, e.g. [\"203.0.113.10/32\"]. Set in terraform.tfvars"
+
+  validation {
+    condition     = !contains(var.api_allowed_cidrs, "0.0.0.0/0")
+    error_message = "Don't open the EKS API to the whole internet; use your own IP /32."
+  }
+}
+
 variable "node_desired_capacity" {
   type        = number
   default     = 1
